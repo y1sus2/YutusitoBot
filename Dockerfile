@@ -1,18 +1,20 @@
-# Usamos una imagen de Python oficial
+# Usar una imagen de Python ligera
 FROM python:3.10-slim
 
-# Instalamos FFmpeg dentro del servidor de Koyeb
-RUN apt-get update && apt-get install -y ffmpeg && apt-get clean
+# Instalar dependencias del sistema: ffmpeg y atomicparsley
+RUN apt-get update && apt-get install -y \
+    ffmpeg \
+    atomicparsley \
+    && rm -rf /var/lib/apt/lists/*
 
-# Establecemos la carpeta de trabajo
+# Establecer directorio de trabajo
 WORKDIR /app
 
-# Copiamos e instalamos las librerías
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Copiamos el resto de tu código
+# Copiar archivos del proyecto
 COPY . .
 
-# Comando para arrancar el bot
+# Instalar librerías de Python
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Comando para ejecutar el bot
 CMD ["python", "yutusito.py"]
