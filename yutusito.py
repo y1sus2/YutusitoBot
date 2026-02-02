@@ -5,87 +5,92 @@ from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import Application, MessageHandler, filters, ContextTypes
 
-# 1. Cargar configuración
+# 1. Configuración
 load_dotenv()
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 YOUR_USERNAME = os.getenv("TELEGRAM_USERNAME")
 
-# Crear carpeta de descargas si no existe
 if not os.path.exists('downloads'):
     os.makedirs('downloads')
 
-# 2. Función para descargar el audio
-async def download_audio(url):
-    output_template = 'downloads/%(title)s.%(ext)s'
+# 2. Función para la Barra de Progreso
+def progress_hook(d, msg_espera, loop, context, chat_id):
+    if d['status'] == 'downloading':
+        p = d.get('_percent_str', '0%')
+        # Actualizamos el mensaje cada vez que cambia el progreso
+        mensaje = f"⏳ Descargando: {p}\n"
+        loop.create_task(context.bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=msg_espera.message_id,
+            text=mensaje
+        ))
+
+# 3. Función de Descarga con Miniatura
+async def download_audio(url, msg_espera, context, chat_id):
+    loop = asyncio.get_event_loop()
     
     ydl_opts = {
         'format': 'bestaudio/best',
-        'outtmpl': output_template,
-        'postprocessors': [{
-            'key': 'FFmpegExtractAudio',
-            'preferredcodec': 'mp3',
-            'preferredquality': '192',
-        }],
+        'outtmpl': 'downloads/%(title)s.%(ext)s',
+        'writethumbnail': True,  # DESCARGA LA MINIATURA
+        'postprocessors': [
+            {'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'},
+            {'key': 'EmbedThumbnail'}, # PEGA LA FOTO AL MP3
+            {'key': 'FFmpegMetadata'}, # AGREGA DATOS (Artista, Título)
+        ],
+        'progress_hooks': [lambda d: progress_hook(d, msg_espera, loop, context, chat_id)],
         'quiet': True,
     }
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=True)
-        # Obtenemos la ruta final del archivo MP3
         archivo_base = ydl.prepare_filename(info)
         ruta_mp3 = os.path.splitext(archivo_base)[0] + ".mp3"
         return ruta_mp3
 
-# 3. Manejador de mensajes con LIMPIEZA AUTOMÁTICA
+# 4. Manejador de mensajes
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Seguridad: Solo tú puedes usar el bot
     if update.message.from_user.username != YOUR_USERNAME:
-        await update.message.reply_text("Acceso denegado.")
         return
 
     url = update.message.text
     if "youtube.com" not in url and "youtu.be" not in url:
-        await update.message.reply_text("Por favor, envía un enlace válido de YouTube.")
+        await update.message.reply_text("❌ Enlace no válido.")
         return
 
-    msg_espera = await update.message.reply_text("⏳ Procesando audio... esto puede tardar un momento.")
+    msg_espera = await update.message.reply_text("⏳ Iniciando descarga...")
     ruta_archivo = None
 
     try:
-        # Descarga
-        ruta_archivo = await download_audio(url)
+        ruta_archivo = await download_audio(url, msg_espera, context, update.effective_chat.id)
         
-        # Enviar a Telegram
+        await context.bot.edit_message_text(
+            chat_id=update.effective_chat.id,
+            message_id=msg_espera.message_id,
+            text="📤 Subiendo a Telegram..."
+        )
+
         with open(ruta_archivo, 'rb') as audio:
             await update.message.reply_audio(
-                audio=audio, 
+                audio=audio,
                 title=os.path.basename(ruta_archivo).replace(".mp3", ""),
-                caption="✅ ¡Aquí tienes tu música!"
+                caption="✅ ¡Listo! Disfruta tu música."
             )
         
         await msg_espera.delete()
-        print(f"✅ Enviado con éxito: {ruta_archivo}")
 
     except Exception as e:
-        await update.message.reply_text(f"❌ Error al procesar: {str(e)}")
-        print(f"Error: {e}")
-
+        await update.message.reply_text(f"❌ Error: {str(e)}")
+    
     finally:
-        # LIMPIEZA: Se ejecuta pase lo que pase para ahorrar espacio en Koyeb
+        # LIMPIEZA AUTOMÁTICA EN KOYEB
         if ruta_archivo and os.path.exists(ruta_archivo):
-            try:
-                os.remove(ruta_archivo)
-                print(f"🗑️ Espacio liberado: {ruta_archivo} eliminado del servidor.")
-            except Exception as e:
-                print(f"No se pudo eliminar el archivo: {e}")
+            os.remove(ruta_archivo)
+            # También borramos la miniatura temporal si quedó suelta
+            thumb = ruta_archivo.replace(".mp3", ".jpg")
+            if os.path.exists(thumb): os.remove(thumb)
 
-# 4. Configuración principal
 def main():
-    if not TOKEN:
-        print("Error: No se encontró TELEGRAM_TOKEN en las variables de entorno.")
-        return
-
-    print("🚀 Bot encendido y listo en Koyeb... esperando enlaces.")
     app = Application.builder().token(TOKEN).build()
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.run_polling()
