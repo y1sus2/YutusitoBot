@@ -15,4 +15,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Comando para arrancar el bot
-CMD ["python", "mi_bot.py"]
+CMD ["python", "yutusito.py"]
