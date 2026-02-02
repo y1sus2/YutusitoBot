@@ -34,15 +34,13 @@ async def download_audio(url, msg_espera, context, chat_id):
         'outtmpl': 'downloads/%(title)s.%(ext)s',
         'writethumbnail': True,
         'postprocessors': [
-            # Convierte a MP3
-            {'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192'},
-            # Asegura que la miniatura sea JPG compatible con Telegram
+            {'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '128'}, # Bajamos calidad a 128 para ahorrar RAM
             {'key': 'FFmpegThumbnailsConvertor', 'format': 'jpg'},
-            # Pega la miniatura (requiere atomicparsley en el Dockerfile)
             {'key': 'EmbedThumbnail'},
-            # Agrega metadatos como Título y Artista
             {'key': 'FFmpegMetadata', 'add_metadata': True},
         ],
+        # Esto obliga al bot a usar una ruta más simple para evitar errores de permisos
+        'prefer_ffmpeg': True, 
         'progress_hooks': [lambda d: progress_hook(d, msg_espera, loop, context, chat_id)],
         'quiet': True,
     }
@@ -51,6 +49,9 @@ async def download_audio(url, msg_espera, context, chat_id):
         info = ydl.extract_info(url, download=True)
         archivo_base = ydl.prepare_filename(info)
         ruta_mp3 = os.path.splitext(archivo_base)[0] + ".mp3"
+        
+        # ESPERA DE SEGURIDAD: Damos 1 segundo para que el sistema de archivos cierre el MP3
+        await asyncio.sleep(1) 
         return ruta_mp3
 
 # 4. Manejador de mensajes
